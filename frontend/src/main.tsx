@@ -36,20 +36,8 @@ function GameCard({ game, selected, onClick, onDragStart, onDragEnd }: {
 
   useEffect(() => {
     if (!apiBaseUrl || !nearViewport) return;
-    let cancelled = false;
     setImageFailed(false);
-    setImageUrl(null);
-    fetch(`${apiBaseUrl}/api/artwork?appid=${game.appid}`)
-      .then(async (response) => {
-        if (!response.ok) throw new Error('Artwork request failed.');
-        return response.json() as Promise<{ artworkUrl?: string }>;
-      })
-      .then(({ artworkUrl }) => {
-        if (!artworkUrl) throw new Error('Artwork response is empty.');
-        if (!cancelled) setImageUrl(artworkUrl);
-      })
-      .catch(() => { if (!cancelled) setImageUrl(steamArtworkUrl(game.appid)); });
-    return () => { cancelled = true; };
+    setImageUrl(`${apiBaseUrl}/api/artwork?appid=${game.appid}&format=image`);
   }, [game.appid, nearViewport]);
 
   return (
