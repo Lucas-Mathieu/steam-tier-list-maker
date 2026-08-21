@@ -186,34 +186,35 @@ function App() {
 
   function beginPointerDrag(event: React.PointerEvent, appid: number) {
     if (event.button !== 0) return;
+    event.currentTarget.setPointerCapture(event.pointerId);
     const imageUrl = (event.currentTarget.querySelector('img') as HTMLImageElement | null)?.currentSrc || null;
     pointerDragRef.current = { ids: selected.has(appid) ? [...selected] : [appid], startX: event.clientX, startY: event.clientY, imageUrl };
   }
 
+  function movePointer(event: { clientX: number; clientY: number }) {
+    const drag = pointerDragRef.current;
+    if (!drag) return;
+    if (!draggingRef.current && Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) < 6) return;
+    if (!draggingRef.current) {
+      draggingRef.current = true;
+      ignoreNextClickRef.current = true;
+      startEdgeScroll();
+    }
+    dragYRef.current = event.clientY;
+    setDragPreview({ count: drag.ids.length, imageUrl: drag.imageUrl, x: event.clientX, y: event.clientY });
+  }
+
+  function releasePointer(event: { clientX: number; clientY: number }) {
+    const drag = pointerDragRef.current;
+    if (draggingRef.current && drag) {
+      const target = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>('[data-dropzone]');
+      const destination = target?.dataset.dropzone;
+      if (destination) move(drag.ids, destination);
+    }
+    stopDragging();
+  }
+
   useEffect(() => {
-    function movePointer(event: PointerEvent) {
-      const drag = pointerDragRef.current;
-      if (!drag) return;
-      if (!draggingRef.current && Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) < 6) return;
-      if (!draggingRef.current) {
-        draggingRef.current = true;
-        ignoreNextClickRef.current = true;
-        startEdgeScroll();
-      }
-      dragYRef.current = event.clientY;
-      setDragPreview({ count: drag.ids.length, imageUrl: drag.imageUrl, x: event.clientX, y: event.clientY });
-    }
-
-    function releasePointer(event: PointerEvent | MouseEvent) {
-      const drag = pointerDragRef.current;
-      if (draggingRef.current && drag) {
-        const target = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>('[data-dropzone]');
-        const destination = target?.dataset.dropzone;
-        if (destination) move(drag.ids, destination);
-      }
-      stopDragging();
-    }
-
     window.addEventListener('pointermove', movePointer);
     window.addEventListener('pointerup', releasePointer, true);
     window.addEventListener('pointercancel', stopDragging, true);
@@ -369,7 +370,7 @@ function App() {
   }
 
   return (
-    <main style={{ '--card-width': `${cardSize}px`, '--card-height': `${Math.round(cardSize * 0.467)}px` } as React.CSSProperties} onClick={(event) => event.target === event.currentTarget && setSelected(new Set())}>
+    <main style={{ '--card-width': `${cardSize}px`, '--card-height': `${Math.round(cardSize * 0.467)}px` } as React.CSSProperties} onPointerMove={movePointer} onPointerUp={releasePointer} onPointerCancel={stopDragging} onClick={(event) => event.target === event.currentTarget && setSelected(new Set())}>
       <header className="page-header">
         <div><h1>Steam Library Tier List</h1><p className="muted">{games.length.toLocaleString()} games loaded</p></div>
         <div className="actions">
