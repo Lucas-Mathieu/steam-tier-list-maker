@@ -123,12 +123,12 @@ function App() {
   useEffect(() => {
     function scrollWithWheel(event: WheelEvent) {
       if (!draggingRef.current) return;
-      event.preventDefault();
+      if (event.cancelable) event.preventDefault();
       window.scrollBy({ top: event.deltaY, left: event.deltaX, behavior: 'auto' });
     }
 
-    window.addEventListener('wheel', scrollWithWheel, { passive: false });
-    return () => window.removeEventListener('wheel', scrollWithWheel);
+    document.addEventListener('wheel', scrollWithWheel, { capture: true, passive: false });
+    return () => document.removeEventListener('wheel', scrollWithWheel, true);
   }, []);
 
   async function loadLibrary() {
@@ -173,6 +173,7 @@ function App() {
     const gameIds = selected.has(appid) ? [...selected] : [appid];
     event.dataTransfer.setData('gameIds', JSON.stringify(gameIds));
     event.dataTransfer.effectAllowed = 'move';
+    setDragImage(event, gameIds.length);
     draggingRef.current = true;
     dragYRef.current = event.clientY;
     startEdgeScroll();
@@ -193,6 +194,30 @@ function App() {
       cancelAnimationFrame(scrollFrameRef.current);
       scrollFrameRef.current = null;
     }
+  }
+
+  function setDragImage(event: React.DragEvent, count: number) {
+    const source = event.currentTarget as HTMLElement;
+    const preview = document.createElement('div');
+    preview.className = 'native-drag-preview';
+    preview.style.width = `${source.getBoundingClientRect().width}px`;
+
+    const card = source.cloneNode(true) as HTMLElement;
+    card.removeAttribute('draggable');
+    card.style.width = '100%';
+    card.style.height = `${source.getBoundingClientRect().height}px`;
+    card.style.transform = 'none';
+    preview.append(card);
+
+    if (count > 1) {
+      const badge = document.createElement('b');
+      badge.textContent = String(count);
+      preview.append(badge);
+    }
+
+    document.body.append(preview);
+    event.dataTransfer.setDragImage(preview, Math.min(28, source.clientWidth / 2), 18);
+    requestAnimationFrame(() => preview.remove());
   }
 
   function startEdgeScroll() {
