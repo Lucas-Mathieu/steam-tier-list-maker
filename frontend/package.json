@@ -1,0 +1,9 @@
+{
+  "name": "steam-tier-list-frontend",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": { "dev": "vite", "build": "tsc -b && vite build", "typecheck": "tsc -b --noEmit", "test": "vitest run" },
+  "dependencies": { "@vitejs/plugin-react": "latest", "html-to-image": "latest", "react": "latest", "react-dom": "latest", "vite": "latest" },
+  "devDependencies": { "@types/react": "latest", "@types/react-dom": "latest", "typescript": "latest", "vitest": "latest" }
+}

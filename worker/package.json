@@ -1,0 +1,5 @@
+{
+  "name":"steam-tier-list-worker","private":true,"version":"1.0.0","type":"module",
+  "scripts":{"dev":"wrangler dev","build":"wrangler deploy --dry-run","typecheck":"tsc --noEmit","test":"vitest run"},
+  "devDependencies":{"@cloudflare/workers-types":"latest","typescript":"5.7.3","vitest":"latest","wrangler":"latest"}
+}

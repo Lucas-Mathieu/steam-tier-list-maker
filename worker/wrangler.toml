@@ -1,0 +1,7 @@
+name = "steam-tier-api"
+main = "src/index.ts"
+compatibility_date = "2026-08-21"
+
+# Browser origins allowed to call the Worker.
+[vars]
+ALLOWED_ORIGINS = "http://localhost:5173,https://lucas-mathieu.github.io"

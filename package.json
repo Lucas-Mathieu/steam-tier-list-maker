@@ -1,0 +1,10 @@
+{
+  "name": "steam-library-tier-list",
+  "private": true,
+  "scripts": {
+    "install:all": "pnpm --dir frontend install && pnpm --dir worker install",
+    "typecheck": "pnpm --dir frontend typecheck && pnpm --dir worker typecheck",
+    "test": "pnpm --dir frontend test && pnpm --dir worker test",
+    "build": "pnpm --dir frontend build && pnpm --dir worker build"
+  }
+}
