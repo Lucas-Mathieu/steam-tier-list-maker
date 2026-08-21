@@ -2,6 +2,8 @@
 
 A tier-list maker for publicly visible Steam libraries. Paste a SteamID64, vanity name, or Steam Community URL and arrange the games using Steam-hosted artwork. Rankings are saved in the browser.
 
+**Live site:** [lucas-mathieu.github.io/steam-tier-list-maker](https://lucas-mathieu.github.io/steam-tier-list-maker/)
+
 ## Features
 
 - Public-library lookup through a Cloudflare Worker
