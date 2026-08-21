@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { toPng } from 'html-to-image';
-import { DndContext, DragOverlay, PointerSensor, useDraggable, useDroppable, useSensor, useSensors } from '@dnd-kit/core';
 import { formatPlaytime, parseSteamProfileInput, steamArtworkUrl } from './steam';
 import { loadState, makeState, moveGames } from './tierState';
 import type { Game, TierState } from './types';
@@ -10,13 +9,49 @@ import './styles.css';
 type Sort = 'az' | 'za' | 'most' | 'least' | 'recent';
 type Filter = 'all' | 'played' | 'never';
 const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
+const artworkQueue: Array<() => void> = [];
+let activeArtworkRequests = 0;
 
-function GameCard({ game, selected, onClick }: {
+function resolveArtwork(url: string) {
+  return new Promise<{ artworkUrl: string }>((resolve, reject) => {
+    artworkQueue.push(async () => {
+      try {
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          const response = await fetch(url);
+          if (response.ok) {
+            resolve(await response.json() as { artworkUrl: string });
+            return;
+          }
+          await new Promise((wait) => setTimeout(wait, 500 * (attempt + 1)));
+        }
+        reject(new Error('Artwork request failed.'));
+      } catch (error) {
+        reject(error);
+      } finally {
+        activeArtworkRequests -= 1;
+        runArtworkQueue();
+      }
+    });
+    runArtworkQueue();
+  });
+}
+
+function runArtworkQueue() {
+  while (activeArtworkRequests < 4 && artworkQueue.length) {
+    const request = artworkQueue.shift();
+    if (!request) return;
+    activeArtworkRequests += 1;
+    void request();
+  }
+}
+
+function GameCard({ game, selected, onClick, onDragStart, onDragEnd }: {
   game: Game;
   selected: boolean;
   onClick: (event: React.MouseEvent) => void;
+  onDragStart: (event: React.DragEvent) => void;
+  onDragEnd: () => void;
 }) {
-  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: `game-${game.appid}` });
   const [imageUrl, setImageUrl] = useState<string | null>(apiBaseUrl ? null : steamArtworkUrl(game.appid));
   const [imageFailed, setImageFailed] = useState(false);
 
@@ -25,8 +60,7 @@ function GameCard({ game, selected, onClick }: {
     let cancelled = false;
     setImageFailed(false);
     setImageUrl(null);
-    fetch(`${apiBaseUrl}/api/artwork?appid=${game.appid}`)
-      .then((response) => response.ok ? response.json() as Promise<{ artworkUrl: string }> : Promise.reject())
+    resolveArtwork(`${apiBaseUrl}/api/artwork?appid=${game.appid}`)
       .then(({ artworkUrl }) => { if (!cancelled) setImageUrl(artworkUrl); })
       .catch(() => { if (!cancelled) setImageUrl(steamArtworkUrl(game.appid)); });
     return () => { cancelled = true; };
@@ -34,13 +68,13 @@ function GameCard({ game, selected, onClick }: {
 
   return (
     <button
-      ref={setNodeRef}
-      className={`game-card ${selected ? 'selected' : ''} ${isDragging ? 'dragging' : ''}`}
+      className={`game-card ${selected ? 'selected' : ''}`}
+      draggable
       title={`${game.name} — ${formatPlaytime(game.playtimeForever)}`}
       aria-label={`Drag ${game.name}`}
       onClick={onClick}
-      {...attributes}
-      {...listeners}
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
     >
       {imageUrl && !imageFailed && <img loading="lazy" src={imageUrl} alt={game.name} onError={() => imageUrl === steamArtworkUrl(game.appid) ? setImageFailed(true) : setImageUrl(steamArtworkUrl(game.appid))} />}
       {(!imageUrl || imageFailed) && <div className="missing-art" aria-label={`${game.name} artwork unavailable`}>{game.name}</div>}
@@ -49,14 +83,6 @@ function GameCard({ game, selected, onClick }: {
   );
 }
 
-function DropZone({ id, children, className = 'dropzone' }: { id: string; children: React.ReactNode; className?: string }) {
-  const { isOver, setNodeRef } = useDroppable({ id });
-  return <div ref={setNodeRef} className={`${className} ${isOver ? 'drop-target' : ''}`}>{children}</div>;
-}
-
-function DragPreview({ game }: { game: Game }) {
-  return <div className="game-card drag-preview"><img src={steamArtworkUrl(game.appid)} alt="" /><span>{game.name}</span></div>;
-}
 
 function App() {
   const [profile, setProfile] = useState('');
@@ -71,13 +97,11 @@ function App() {
   const [history, setHistory] = useState<TierState[]>([]);
   const [showTierEditor, setShowTierEditor] = useState(false);
   const [cardSize, setCardSize] = useState(184);
-  const [activeDragId, setActiveDragId] = useState<number | null>(null);
   const boardRef = useRef<HTMLDivElement>(null);
   const loadedCardSizeFor = useRef<string | null>(null);
   const draggingRef = useRef(false);
   const dragYRef = useRef(0);
   const scrollFrameRef = useRef<number | null>(null);
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
   const gamesById = useMemo(() => new Map(games.map((game) => [game.appid, game])), [games]);
 
@@ -102,7 +126,6 @@ function App() {
         return (b.playtime2Weeks || 0) - (a.playtime2Weeks || 0);
       });
   }, [filter, gamesById, search, sort, tierState]);
-  const activeDragGame = activeDragId === null ? null : gamesById.get(activeDragId) || null;
 
   useEffect(() => {
     if (tierState) {
@@ -171,10 +194,22 @@ function App() {
     setSelected(new Set());
   }
 
-  function beginDrag(appid: number) {
-    if (!selected.has(appid)) setSelected(new Set([appid]));
+  function beginDrag(event: React.DragEvent, appid: number) {
+    const gameIds = selected.has(appid) ? [...selected] : [appid];
+    event.dataTransfer.setData('gameIds', JSON.stringify(gameIds));
+    event.dataTransfer.effectAllowed = 'move';
     draggingRef.current = true;
+    dragYRef.current = event.clientY;
     startEdgeScroll();
+  }
+
+  function receiveDrop(event: React.DragEvent, destination: string) {
+    event.preventDefault();
+    try {
+      move(JSON.parse(event.dataTransfer.getData('gameIds')) as number[], destination);
+    } catch {
+      // Ignore a drop that did not originate from a game card.
+    }
   }
 
   function stopDragging() {
@@ -209,11 +244,8 @@ function App() {
     scrollFrameRef.current = requestAnimationFrame(scrollFrame);
   }
 
-  function finishDrag(activeId: string, destination?: string) {
-    const appid = Number(activeId.replace('game-', ''));
-    const gameIds = selected.has(appid) ? [...selected] : [appid];
-    if (destination) move(gameIds, destination);
-    stopDragging();
+  function trackDragPosition(event: React.DragEvent) {
+    if (draggingRef.current) dragYRef.current = event.clientY;
   }
 
   function toggleSelection(event: React.MouseEvent, appid: number) {
@@ -229,7 +261,7 @@ function App() {
     return ids.map((id) => {
       const game = gamesById.get(id);
       if (!game) return null;
-      return <GameCard key={id} game={game} selected={selected.has(id)} onClick={(event) => toggleSelection(event, id)} />;
+      return <GameCard key={id} game={game} selected={selected.has(id)} onClick={(event) => toggleSelection(event, id)} onDragStart={(event) => beginDrag(event, id)} onDragEnd={stopDragging} />;
     });
   }
 
@@ -317,8 +349,7 @@ function App() {
   }
 
   return (
-    <DndContext sensors={sensors} autoScroll={false} onDragStart={({ active }) => { const appid = Number(String(active.id).replace('game-', '')); setActiveDragId(appid); beginDrag(appid); }} onDragEnd={({ active, over }) => { finishDrag(String(active.id), over ? String(over.id) : undefined); setActiveDragId(null); }} onDragCancel={() => { stopDragging(); setActiveDragId(null); }}>
-    <main style={{ '--card-width': `${cardSize}px`, '--card-height': `${Math.round(cardSize * 0.467)}px` } as React.CSSProperties} onPointerMove={(event) => { if (draggingRef.current) dragYRef.current = event.clientY; }} onClick={(event) => event.target === event.currentTarget && setSelected(new Set())}>
+    <main style={{ '--card-width': `${cardSize}px`, '--card-height': `${Math.round(cardSize * 0.467)}px` } as React.CSSProperties} onDragOver={trackDragPosition} onClick={(event) => event.target === event.currentTarget && setSelected(new Set())}>
       <header className="page-header">
         <div><h1>Steam Library Tier List</h1><p className="muted">{games.length.toLocaleString()} games loaded</p></div>
         <div className="actions">
@@ -334,12 +365,12 @@ function App() {
         {tierState.tiers.map((tier) => (
           <div className="tier-row" key={tier.id}>
             <div className="tier-label" style={{ backgroundColor: tier.color }}>{tier.label || 'Tier'}</div>
-            <DropZone id={tier.id}>{renderCards(tier.gameIds)}</DropZone>
+            <div className="dropzone" onDragOver={(event) => event.preventDefault()} onDrop={(event) => receiveDrop(event, tier.id)}>{renderCards(tier.gameIds)}</div>
           </div>
         ))}
         <div className="tier-row">
           <div className="tier-label na-label">N/A</div>
-          <DropZone id="notRanking">{renderCards(tierState.notRanking)}</DropZone>
+          <div className="dropzone" onDragOver={(event) => event.preventDefault()} onDrop={(event) => receiveDrop(event, 'notRanking')}>{renderCards(tierState.notRanking)}</div>
         </div>
       </section>
       <section className="tier-editor">
@@ -368,11 +399,9 @@ function App() {
           <div><h2>Unranked</h2><p>{visibleUnranked.length} shown · {tierState.unranked.length} unranked · {games.length} total</p></div>
           <div className="controls"><input aria-label="Search unranked games" value={search} placeholder="Search games" onChange={(event) => setSearch(event.target.value)} /><select value={filter} onChange={(event) => setFilter(event.target.value as Filter)}><option value="all">All games</option><option value="played">Played</option><option value="never">Never played</option></select><select value={sort} onChange={(event) => setSort(event.target.value as Sort)}><option value="az">A–Z</option><option value="za">Z–A</option><option value="most">Most played</option><option value="least">Least played</option><option value="recent">Recently played</option></select></div>
         </div>
-        <DropZone id="unranked" className="pool">{visibleUnranked.map((game) => <GameCard key={game.appid} game={game} selected={selected.has(game.appid)} onClick={(event) => toggleSelection(event, game.appid)} />)}</DropZone>
+        <div className="pool" onDragOver={(event) => event.preventDefault()} onDrop={(event) => receiveDrop(event, 'unranked')}>{visibleUnranked.map((game) => <GameCard key={game.appid} game={game} selected={selected.has(game.appid)} onClick={(event) => toggleSelection(event, game.appid)} onDragStart={(event) => beginDrag(event, game.appid)} onDragEnd={stopDragging} />)}</div>
       </section>
     </main>
-    <DragOverlay dropAnimation={null}>{activeDragGame && <DragPreview game={activeDragGame} />}</DragOverlay>
-    </DndContext>
   );
 }
 
