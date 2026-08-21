@@ -75,6 +75,7 @@ function App() {
   const draggingRef = useRef(false);
   const dragYRef = useRef(0);
   const scrollFrameRef = useRef<number | null>(null);
+  const scrollTimestampRef = useRef<number | null>(null);
   const pointerDragRef = useRef<{ ids: number[]; startX: number; startY: number; imageUrl: string | null } | null>(null);
   const ignoreNextClickRef = useRef(false);
   const [dragPreview, setDragPreview] = useState<{ count: number; imageUrl: string | null; x: number; y: number } | null>(null);
@@ -178,6 +179,7 @@ function App() {
       cancelAnimationFrame(scrollFrameRef.current);
       scrollFrameRef.current = null;
     }
+    scrollTimestampRef.current = null;
   }
 
   function beginPointerDrag(event: React.PointerEvent, appid: number) {
@@ -221,20 +223,24 @@ function App() {
   function startEdgeScroll() {
     if (scrollFrameRef.current !== null) return;
 
-    function scrollFrame() {
+    function scrollFrame(timestamp: number) {
       if (!draggingRef.current) {
         scrollFrameRef.current = null;
+        scrollTimestampRef.current = null;
         return;
       }
 
+      const previousTimestamp = scrollTimestampRef.current ?? timestamp;
+      const elapsed = Math.min(timestamp - previousTimestamp, 34);
+      scrollTimestampRef.current = timestamp;
       const edge = 90;
       const topDistance = dragYRef.current;
       const bottomDistance = window.innerHeight - dragYRef.current;
-      let amount = 0;
+      let velocity = 0;
 
-      if (topDistance < edge) amount = -Math.max(4, Math.ceil(((edge - topDistance) / edge) * 28));
-      if (bottomDistance < edge) amount = Math.max(4, Math.ceil(((edge - bottomDistance) / edge) * 28));
-      if (amount) window.scrollBy({ top: amount, behavior: 'auto' });
+      if (topDistance < edge) velocity = -900 * ((edge - topDistance) / edge) ** 2;
+      if (bottomDistance < edge) velocity = 900 * ((edge - bottomDistance) / edge) ** 2;
+      if (velocity) window.scrollBy({ top: velocity * elapsed / 1000, behavior: 'auto' });
 
       scrollFrameRef.current = requestAnimationFrame(scrollFrame);
     }
