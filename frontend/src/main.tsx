@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { toPng } from 'html-to-image';
-import { DndContext, PointerSensor, useDraggable, useDroppable, useSensor, useSensors } from '@dnd-kit/core';
+import { DndContext, DragOverlay, PointerSensor, useDraggable, useDroppable, useSensor, useSensors } from '@dnd-kit/core';
 import { formatPlaytime, parseSteamProfileInput, steamArtworkUrl } from './steam';
 import { loadState, makeState, moveGames } from './tierState';
 import type { Game, TierState } from './types';
@@ -54,6 +54,10 @@ function DropZone({ id, children, className = 'dropzone' }: { id: string; childr
   return <div ref={setNodeRef} className={`${className} ${isOver ? 'drop-target' : ''}`}>{children}</div>;
 }
 
+function DragPreview({ game }: { game: Game }) {
+  return <div className="game-card drag-preview"><img src={steamArtworkUrl(game.appid)} alt="" /><span>{game.name}</span></div>;
+}
+
 function App() {
   const [profile, setProfile] = useState('');
   const [games, setGames] = useState<Game[]>([]);
@@ -67,6 +71,7 @@ function App() {
   const [history, setHistory] = useState<TierState[]>([]);
   const [showTierEditor, setShowTierEditor] = useState(false);
   const [cardSize, setCardSize] = useState(184);
+  const [activeDragId, setActiveDragId] = useState<number | null>(null);
   const boardRef = useRef<HTMLDivElement>(null);
   const loadedCardSizeFor = useRef<string | null>(null);
   const draggingRef = useRef(false);
@@ -97,6 +102,7 @@ function App() {
         return (b.playtime2Weeks || 0) - (a.playtime2Weeks || 0);
       });
   }, [filter, gamesById, search, sort, tierState]);
+  const activeDragGame = activeDragId === null ? null : gamesById.get(activeDragId) || null;
 
   useEffect(() => {
     if (tierState) {
@@ -311,7 +317,7 @@ function App() {
   }
 
   return (
-    <DndContext sensors={sensors} autoScroll={false} onDragStart={({ active }) => beginDrag(Number(String(active.id).replace('game-', '')))} onDragEnd={({ active, over }) => finishDrag(String(active.id), over ? String(over.id) : undefined)} onDragCancel={stopDragging}>
+    <DndContext sensors={sensors} autoScroll={false} onDragStart={({ active }) => { const appid = Number(String(active.id).replace('game-', '')); setActiveDragId(appid); beginDrag(appid); }} onDragEnd={({ active, over }) => { finishDrag(String(active.id), over ? String(over.id) : undefined); setActiveDragId(null); }} onDragCancel={() => { stopDragging(); setActiveDragId(null); }}>
     <main style={{ '--card-width': `${cardSize}px`, '--card-height': `${Math.round(cardSize * 0.467)}px` } as React.CSSProperties} onPointerMove={(event) => { if (draggingRef.current) dragYRef.current = event.clientY; }} onClick={(event) => event.target === event.currentTarget && setSelected(new Set())}>
       <header className="page-header">
         <div><h1>Steam Library Tier List</h1><p className="muted">{games.length.toLocaleString()} games loaded</p></div>
@@ -365,6 +371,7 @@ function App() {
         <DropZone id="unranked" className="pool">{visibleUnranked.map((game) => <GameCard key={game.appid} game={game} selected={selected.has(game.appid)} onClick={(event) => toggleSelection(event, game.appid)} />)}</DropZone>
       </section>
     </main>
+    <DragOverlay dropAnimation={null}>{activeDragGame && <DragPreview game={activeDragGame} />}</DragOverlay>
     </DndContext>
   );
 }
