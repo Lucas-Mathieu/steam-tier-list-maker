@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { toPng } from 'html-to-image';
-import { formatPlaytime, parseSteamProfileInput, steamArtworkUrl, steamHeaderUrl } from './steam';
+import { formatPlaytime, parseSteamProfileInput, steamArtworkUrl } from './steam';
 import { loadState, makeState, moveGames } from './tierState';
 import type { Game, TierState } from './types';
 import './styles.css';
@@ -27,12 +27,8 @@ function GameCard({ game, selected, onClick, onDragStart }: {
       onClick={onClick}
       onDragStart={onDragStart}
     >
-      <img
-        loading="lazy"
-        src={imageFailed ? steamHeaderUrl(game.appid) : steamArtworkUrl(game.appid)}
-        alt={game.name}
-        onError={() => setImageFailed(true)}
-      />
+      {!imageFailed && <img loading="lazy" src={steamArtworkUrl(game.appid)} alt={game.name} onError={() => setImageFailed(true)} />}
+      {imageFailed && <div className="missing-art" aria-label={`${game.name} artwork unavailable`}>{game.name}</div>}
       <span>{game.name}</span>
     </button>
   );
@@ -173,12 +169,21 @@ function App() {
     });
   }
 
+  function changeTierColor(tierId: string, color: string) {
+    if (!tierState) return;
+    setTierState({
+      ...tierState,
+      tiers: tierState.tiers.map((tier) => tier.id === tierId ? { ...tier, color } : tier),
+      updatedAt: new Date().toISOString(),
+    });
+  }
+
   function addTier() {
     if (!tierState) return;
     const id = `custom-${crypto.randomUUID()}`;
     setTierState({
       ...tierState,
-      tiers: [...tierState.tiers, { id, label: 'New tier', gameIds: [], custom: true }],
+      tiers: [...tierState.tiers, { id, label: 'New tier', gameIds: [], color: '#c5c5c5', custom: true }],
       updatedAt: new Date().toISOString(),
     });
   }
@@ -225,7 +230,55 @@ function App() {
     return <main className="welcome"><h1>Steam Library Tier List</h1><p className="muted">Load a public Steam library and sort the games into a tier list.</p><label className="field-label" htmlFor="profile">Steam profile URL, vanity name, or SteamID64</label><div className="load-row"><input id="profile" value={profile} placeholder="https://steamcommunity.com/id/yourname" onChange={(event) => setProfile(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && loadLibrary()} /><button onClick={loadLibrary} disabled={isLoading}>{isLoading ? 'Loading…' : 'Load library'}</button></div>{message && <p className="error" role="alert">{message}</p>}<p className="muted"><small>Your Steam profile and Game Details must be public. Rankings are saved in this browser.</small></p></main>;
   }
 
-  return <main onClick={(event) => event.target === event.currentTarget && setSelected(new Set())}><header className="page-header"><div><h1>Steam Library Tier List</h1><p className="muted">{games.length.toLocaleString()} games loaded</p></div><div className="actions"><button onClick={undo} disabled={!history.length}>Undo</button><button onClick={reset}>Reset</button><button onClick={() => { if (confirm('Clear saved progress for this profile?')) { localStorage.removeItem(`steam-tier-list:${tierState.steamId}`); setTierState(makeState(tierState.steamId, games.map((game) => game.appid))); } }}>Clear saved</button><button className="primary" onClick={exportBoard}>Export PNG</button></div></header><p className="help">Hold Ctrl or Cmd while clicking to select several games, then drag one of them.</p>{message && <p className="error" role="alert">{message}</p>}<section className="board" ref={boardRef}>{tierState.tiers.map((tier, index) => <div className="tier-row" key={tier.id}><div className="tier-label"><input aria-label="Tier name" value={tier.label} onChange={(event) => changeTierLabel(tier.id, event.target.value)} /><div className="tier-buttons"><button aria-label="Move tier up" title="Move up" disabled={index === 0} onClick={() => moveTier(tier.id, -1)}>↑</button><button aria-label="Move tier down" title="Move down" disabled={index === tierState.tiers.length - 1} onClick={() => moveTier(tier.id, 1)}>↓</button><button aria-label="Delete tier" title="Delete tier" onClick={() => deleteTier(tier.id)}>×</button></div></div><div className="dropzone" onDragOver={(event) => event.preventDefault()} onDrop={(event) => receiveDrop(event, tier.id)}>{renderCards(tier.gameIds)}</div></div>)}<button className="add-tier" onClick={addTier}>Add tier</button><div className="tier-row"><div className="tier-label fixed-tier">N/A</div><div className="dropzone" onDragOver={(event) => event.preventDefault()} onDrop={(event) => receiveDrop(event, 'notRanking')}>{renderCards(tierState.notRanking)}</div></div></section><section className="library"><div className="library-head"><div><h2>Unranked</h2><p>{visibleUnranked.length} shown · {tierState.unranked.length} unranked · {games.length} total</p></div><div className="controls"><input aria-label="Search unranked games" value={search} placeholder="Search games" onChange={(event) => setSearch(event.target.value)} /><select value={filter} onChange={(event) => setFilter(event.target.value as Filter)}><option value="all">All games</option><option value="played">Played</option><option value="never">Never played</option></select><select value={sort} onChange={(event) => setSort(event.target.value as Sort)}><option value="az">A–Z</option><option value="za">Z–A</option><option value="most">Most played</option><option value="least">Least played</option><option value="recent">Recently played</option></select></div></div><div className="pool" onDragOver={(event) => event.preventDefault()} onDrop={(event) => receiveDrop(event, 'unranked')}>{visibleUnranked.map((game) => <GameCard key={game.appid} game={game} selected={selected.has(game.appid)} onClick={(event) => toggleSelection(event, game.appid)} onDragStart={(event) => beginDrag(event, game.appid)} />)}</div></section></main>;
+  return (
+    <main onClick={(event) => event.target === event.currentTarget && setSelected(new Set())}>
+      <header className="page-header">
+        <div><h1>Steam Library Tier List</h1><p className="muted">{games.length.toLocaleString()} games loaded</p></div>
+        <div className="actions">
+          <button onClick={undo} disabled={!history.length}>Undo</button>
+          <button onClick={reset}>Reset</button>
+          <button onClick={() => { if (confirm('Clear saved progress for this profile?')) { localStorage.removeItem(`steam-tier-list:${tierState.steamId}`); setTierState(makeState(tierState.steamId, games.map((game) => game.appid))); } }}>Clear saved</button>
+          <button className="primary" onClick={exportBoard}>Export PNG</button>
+        </div>
+      </header>
+      <p className="help">Hold Ctrl or Cmd while clicking to select several games, then drag one of them.</p>
+      {message && <p className="error" role="alert">{message}</p>}
+      <section className="board" ref={boardRef}>
+        {tierState.tiers.map((tier) => (
+          <div className="tier-row" key={tier.id}>
+            <div className="tier-label" style={{ backgroundColor: tier.color }}>{tier.label || 'Tier'}</div>
+            <div className="dropzone" onDragOver={(event) => event.preventDefault()} onDrop={(event) => receiveDrop(event, tier.id)}>{renderCards(tier.gameIds)}</div>
+          </div>
+        ))}
+        <div className="tier-row">
+          <div className="tier-label na-label">N/A</div>
+          <div className="dropzone" onDragOver={(event) => event.preventDefault()} onDrop={(event) => receiveDrop(event, 'notRanking')}>{renderCards(tierState.notRanking)}</div>
+        </div>
+      </section>
+      <section className="tier-editor">
+        <div><h2>Edit tiers</h2><p className="muted">Changes are saved automatically.</p></div>
+        <div className="tier-editor-list">
+          {tierState.tiers.map((tier, index) => (
+            <div className="tier-editor-row" key={tier.id}>
+              <input aria-label="Tier name" value={tier.label} onChange={(event) => changeTierLabel(tier.id, event.target.value)} />
+              <label className="color-control">Color <input aria-label={`${tier.label || 'Tier'} color`} type="color" value={tier.color || '#c5c5c5'} onChange={(event) => changeTierColor(tier.id, event.target.value)} /></label>
+              <button aria-label="Move tier up" disabled={index === 0} onClick={() => moveTier(tier.id, -1)}>Move up</button>
+              <button aria-label="Move tier down" disabled={index === tierState.tiers.length - 1} onClick={() => moveTier(tier.id, 1)}>Move down</button>
+              <button className="delete" onClick={() => deleteTier(tier.id)}>Delete</button>
+            </div>
+          ))}
+          <button className="add-tier" onClick={addTier}>Add tier</button>
+        </div>
+      </section>
+      <section className="library">
+        <div className="library-head">
+          <div><h2>Unranked</h2><p>{visibleUnranked.length} shown · {tierState.unranked.length} unranked · {games.length} total</p></div>
+          <div className="controls"><input aria-label="Search unranked games" value={search} placeholder="Search games" onChange={(event) => setSearch(event.target.value)} /><select value={filter} onChange={(event) => setFilter(event.target.value as Filter)}><option value="all">All games</option><option value="played">Played</option><option value="never">Never played</option></select><select value={sort} onChange={(event) => setSort(event.target.value as Sort)}><option value="az">A–Z</option><option value="za">Z–A</option><option value="most">Most played</option><option value="least">Least played</option><option value="recent">Recently played</option></select></div>
+        </div>
+        <div className="pool" onDragOver={(event) => event.preventDefault()} onDrop={(event) => receiveDrop(event, 'unranked')}>{visibleUnranked.map((game) => <GameCard key={game.appid} game={game} selected={selected.has(game.appid)} onClick={(event) => toggleSelection(event, game.appid)} onDragStart={(event) => beginDrag(event, game.appid)} />)}</div>
+      </section>
+    </main>
+  );
 }
 
 createRoot(document.getElementById('root')!).render(<App />);
