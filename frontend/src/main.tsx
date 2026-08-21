@@ -182,8 +182,19 @@ function App() {
 
   function beginPointerDrag(event: React.PointerEvent, appid: number) {
     if (event.button !== 0) return;
+    event.currentTarget.setPointerCapture(event.pointerId);
     const imageUrl = (event.currentTarget.querySelector('img') as HTMLImageElement | null)?.currentSrc || null;
     pointerDragRef.current = { ids: selected.has(appid) ? [...selected] : [appid], startX: event.clientX, startY: event.clientY, imageUrl };
+  }
+
+  function releasePointer(event: { clientX: number; clientY: number }) {
+    const drag = pointerDragRef.current;
+    if (draggingRef.current && drag) {
+      const target = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>('[data-dropzone]');
+      const destination = target?.dataset.dropzone;
+      if (destination) move(drag.ids, destination);
+    }
+    stopDragging();
   }
 
   useEffect(() => {
@@ -198,16 +209,6 @@ function App() {
       }
       dragYRef.current = event.clientY;
       setDragPreview({ count: drag.ids.length, imageUrl: drag.imageUrl, x: event.clientX, y: event.clientY });
-    }
-
-    function releasePointer(event: PointerEvent) {
-      const drag = pointerDragRef.current;
-      if (draggingRef.current && drag) {
-        const target = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>('[data-dropzone]');
-        const destination = target?.dataset.dropzone;
-        if (destination) move(drag.ids, destination);
-      }
-      stopDragging();
     }
 
     window.addEventListener('pointermove', movePointer);
@@ -347,7 +348,7 @@ function App() {
   }
 
   return (
-    <main style={{ '--card-width': `${cardSize}px`, '--card-height': `${Math.round(cardSize * 0.467)}px` } as React.CSSProperties} onClick={(event) => event.target === event.currentTarget && setSelected(new Set())}>
+    <main style={{ '--card-width': `${cardSize}px`, '--card-height': `${Math.round(cardSize * 0.467)}px` } as React.CSSProperties} onPointerUp={releasePointer} onPointerCancel={stopDragging} onClick={(event) => event.target === event.currentTarget && setSelected(new Set())}>
       <header className="page-header">
         <div><h1>Steam Library Tier List</h1><p className="muted">{games.length.toLocaleString()} games loaded</p></div>
         <div className="actions">
@@ -405,4 +406,3 @@ function App() {
 }
 
 createRoot(document.getElementById('root')!).render(<App />);
-
