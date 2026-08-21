@@ -10,13 +10,18 @@ type Sort = 'az' | 'za' | 'most' | 'least' | 'recent';
 type Filter = 'all' | 'played' | 'never';
 const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
 
-function GameCard({ game, selected, onClick, onDragStart }: {
+function GameCard({ game, selected, onClick, onDragStart, onDragEnd }: {
   game: Game;
   selected: boolean;
   onClick: (event: React.MouseEvent) => void;
   onDragStart: (event: React.DragEvent) => void;
+  onDragEnd: () => void;
 }) {
+  const [useFallback, setUseFallback] = useState(false);
   const [imageFailed, setImageFailed] = useState(false);
+  const artworkUrl = useFallback || !apiBaseUrl
+    ? steamArtworkUrl(game.appid)
+    : `${apiBaseUrl}/api/artwork?appid=${game.appid}`;
 
   return (
     <button
@@ -26,8 +31,9 @@ function GameCard({ game, selected, onClick, onDragStart }: {
       aria-label={`Drag ${game.name}`}
       onClick={onClick}
       onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
     >
-      {!imageFailed && <img loading="lazy" src={steamArtworkUrl(game.appid)} alt={game.name} onError={() => setImageFailed(true)} />}
+      {!imageFailed && <img loading="lazy" src={artworkUrl} alt={game.name} onError={() => useFallback ? setImageFailed(true) : setUseFallback(true)} />}
       {imageFailed && <div className="missing-art" aria-label={`${game.name} artwork unavailable`}>{game.name}</div>}
       <span>{game.name}</span>
     </button>
@@ -49,6 +55,9 @@ function App() {
   const [cardSize, setCardSize] = useState(184);
   const boardRef = useRef<HTMLDivElement>(null);
   const loadedCardSizeFor = useRef<string | null>(null);
+  const draggingRef = useRef(false);
+  const dragYRef = useRef(0);
+  const scrollFrameRef = useRef<number | null>(null);
 
   const gamesById = useMemo(() => new Map(games.map((game) => [game.appid, game])), [games]);
 
@@ -92,6 +101,17 @@ function App() {
     localStorage.setItem(key, String(cardSize));
   }, [cardSize, tierState?.steamId]);
 
+  useEffect(() => {
+    function scrollWithWheel(event: WheelEvent) {
+      if (!draggingRef.current) return;
+      event.preventDefault();
+      window.scrollBy({ top: event.deltaY, left: event.deltaX, behavior: 'auto' });
+    }
+
+    window.addEventListener('wheel', scrollWithWheel, { passive: false });
+    return () => window.removeEventListener('wheel', scrollWithWheel);
+  }, []);
+
   async function loadLibrary() {
     if (!parseSteamProfileInput(profile)) {
       setMessage('Please enter a valid Steam profile URL, vanity name, or SteamID64.');
@@ -134,6 +154,9 @@ function App() {
     const gameIds = selected.has(appid) ? [...selected] : [appid];
     event.dataTransfer.setData('gameIds', JSON.stringify(gameIds));
     event.dataTransfer.effectAllowed = 'move';
+    draggingRef.current = true;
+    dragYRef.current = event.clientY;
+    startEdgeScroll();
   }
 
   function receiveDrop(event: React.DragEvent, destination: string) {
@@ -145,10 +168,40 @@ function App() {
     }
   }
 
-  function autoScrollWhileDragging(event: React.DragEvent) {
-    const edge = 110;
-    if (event.clientY < edge) window.scrollBy({ top: -18, behavior: 'auto' });
-    if (event.clientY > window.innerHeight - edge) window.scrollBy({ top: 18, behavior: 'auto' });
+  function stopDragging() {
+    draggingRef.current = false;
+    if (scrollFrameRef.current !== null) {
+      cancelAnimationFrame(scrollFrameRef.current);
+      scrollFrameRef.current = null;
+    }
+  }
+
+  function startEdgeScroll() {
+    if (scrollFrameRef.current !== null) return;
+
+    function scrollFrame() {
+      if (!draggingRef.current) {
+        scrollFrameRef.current = null;
+        return;
+      }
+
+      const edge = 90;
+      const topDistance = dragYRef.current;
+      const bottomDistance = window.innerHeight - dragYRef.current;
+      let amount = 0;
+
+      if (topDistance < edge) amount = -Math.max(4, Math.ceil(((edge - topDistance) / edge) * 28));
+      if (bottomDistance < edge) amount = Math.max(4, Math.ceil(((edge - bottomDistance) / edge) * 28));
+      if (amount) window.scrollBy({ top: amount, behavior: 'auto' });
+
+      scrollFrameRef.current = requestAnimationFrame(scrollFrame);
+    }
+
+    scrollFrameRef.current = requestAnimationFrame(scrollFrame);
+  }
+
+  function trackDragPosition(event: React.DragEvent) {
+    if (draggingRef.current) dragYRef.current = event.clientY;
   }
 
   function toggleSelection(event: React.MouseEvent, appid: number) {
@@ -164,7 +217,7 @@ function App() {
     return ids.map((id) => {
       const game = gamesById.get(id);
       if (!game) return null;
-      return <GameCard key={id} game={game} selected={selected.has(id)} onClick={(event) => toggleSelection(event, id)} onDragStart={(event) => beginDrag(event, id)} />;
+      return <GameCard key={id} game={game} selected={selected.has(id)} onClick={(event) => toggleSelection(event, id)} onDragStart={(event) => beginDrag(event, id)} onDragEnd={stopDragging} />;
     });
   }
 
@@ -252,7 +305,7 @@ function App() {
   }
 
   return (
-    <main style={{ '--card-width': `${cardSize}px`, '--card-height': `${Math.round(cardSize * 0.467)}px` } as React.CSSProperties} onDragOver={autoScrollWhileDragging} onClick={(event) => event.target === event.currentTarget && setSelected(new Set())}>
+    <main style={{ '--card-width': `${cardSize}px`, '--card-height': `${Math.round(cardSize * 0.467)}px` } as React.CSSProperties} onDragOver={trackDragPosition} onClick={(event) => event.target === event.currentTarget && setSelected(new Set())}>
       <header className="page-header">
         <div><h1>Steam Library Tier List</h1><p className="muted">{games.length.toLocaleString()} games loaded</p></div>
         <div className="actions">
@@ -302,7 +355,7 @@ function App() {
           <div><h2>Unranked</h2><p>{visibleUnranked.length} shown · {tierState.unranked.length} unranked · {games.length} total</p></div>
           <div className="controls"><input aria-label="Search unranked games" value={search} placeholder="Search games" onChange={(event) => setSearch(event.target.value)} /><select value={filter} onChange={(event) => setFilter(event.target.value as Filter)}><option value="all">All games</option><option value="played">Played</option><option value="never">Never played</option></select><select value={sort} onChange={(event) => setSort(event.target.value as Sort)}><option value="az">A–Z</option><option value="za">Z–A</option><option value="most">Most played</option><option value="least">Least played</option><option value="recent">Recently played</option></select></div>
         </div>
-        <div className="pool" onDragOver={(event) => event.preventDefault()} onDrop={(event) => receiveDrop(event, 'unranked')}>{visibleUnranked.map((game) => <GameCard key={game.appid} game={game} selected={selected.has(game.appid)} onClick={(event) => toggleSelection(event, game.appid)} onDragStart={(event) => beginDrag(event, game.appid)} />)}</div>
+        <div className="pool" onDragOver={(event) => event.preventDefault()} onDrop={(event) => receiveDrop(event, 'unranked')}>{visibleUnranked.map((game) => <GameCard key={game.appid} game={game} selected={selected.has(game.appid)} onClick={(event) => toggleSelection(event, game.appid)} onDragStart={(event) => beginDrag(event, game.appid)} onDragEnd={stopDragging} />)}</div>
       </section>
     </main>
   );
