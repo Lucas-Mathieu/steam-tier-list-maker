@@ -9,41 +9,6 @@ import './styles.css';
 type Sort = 'az' | 'za' | 'most' | 'least' | 'recent';
 type Filter = 'all' | 'played' | 'never';
 const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
-const artworkQueue: Array<() => void> = [];
-let activeArtworkRequests = 0;
-
-function resolveArtwork(url: string) {
-  return new Promise<{ artworkUrl: string }>((resolve, reject) => {
-    artworkQueue.push(async () => {
-      try {
-        for (let attempt = 0; attempt < 3; attempt += 1) {
-          const response = await fetch(url);
-          if (response.ok) {
-            resolve(await response.json() as { artworkUrl: string });
-            return;
-          }
-          await new Promise((wait) => setTimeout(wait, 500 * (attempt + 1)));
-        }
-        reject(new Error('Artwork request failed.'));
-      } catch (error) {
-        reject(error);
-      } finally {
-        activeArtworkRequests -= 1;
-        runArtworkQueue();
-      }
-    });
-    runArtworkQueue();
-  });
-}
-
-function runArtworkQueue() {
-  while (activeArtworkRequests < 4 && artworkQueue.length) {
-    const request = artworkQueue.shift();
-    if (!request) return;
-    activeArtworkRequests += 1;
-    void request();
-  }
-}
 
 function GameCard({ game, selected, onClick, onDragStart, onDragEnd }: {
   game: Game;
@@ -52,22 +17,44 @@ function GameCard({ game, selected, onClick, onDragStart, onDragEnd }: {
   onDragStart: (event: React.DragEvent) => void;
   onDragEnd: () => void;
 }) {
+  const cardRef = useRef<HTMLButtonElement>(null);
+  const [nearViewport, setNearViewport] = useState(false);
   const [imageUrl, setImageUrl] = useState<string | null>(apiBaseUrl ? null : steamArtworkUrl(game.appid));
   const [imageFailed, setImageFailed] = useState(false);
 
   useEffect(() => {
-    if (!apiBaseUrl) return;
+    const card = cardRef.current;
+    if (!card || !apiBaseUrl) return;
+    const observer = new IntersectionObserver(([entry]) => {
+      if (!entry.isIntersecting) return;
+      setNearViewport(true);
+      observer.disconnect();
+    }, { rootMargin: '600px 0px' });
+    observer.observe(card);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (!apiBaseUrl || !nearViewport) return;
     let cancelled = false;
     setImageFailed(false);
     setImageUrl(null);
-    resolveArtwork(`${apiBaseUrl}/api/artwork?appid=${game.appid}`)
-      .then(({ artworkUrl }) => { if (!cancelled) setImageUrl(artworkUrl); })
+    fetch(`${apiBaseUrl}/api/artwork?appid=${game.appid}`)
+      .then(async (response) => {
+        if (!response.ok) throw new Error('Artwork request failed.');
+        return response.json() as Promise<{ artworkUrl?: string }>;
+      })
+      .then(({ artworkUrl }) => {
+        if (!artworkUrl) throw new Error('Artwork response is empty.');
+        if (!cancelled) setImageUrl(artworkUrl);
+      })
       .catch(() => { if (!cancelled) setImageUrl(steamArtworkUrl(game.appid)); });
     return () => { cancelled = true; };
-  }, [game.appid]);
+  }, [game.appid, nearViewport]);
 
   return (
     <button
+      ref={cardRef}
       className={`game-card ${selected ? 'selected' : ''}`}
       draggable
       title={`${game.name} — ${formatPlaytime(game.playtimeForever)}`}
