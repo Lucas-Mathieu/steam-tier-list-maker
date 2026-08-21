@@ -76,6 +76,7 @@ function App() {
   const dragYRef = useRef(0);
   const scrollFrameRef = useRef<number | null>(null);
   const scrollTimestampRef = useRef<number | null>(null);
+  const scrollRemainderRef = useRef(0);
   const pointerDragRef = useRef<{ ids: number[]; startX: number; startY: number; imageUrl: string | null } | null>(null);
   const ignoreNextClickRef = useRef(false);
   const [dragPreview, setDragPreview] = useState<{ count: number; imageUrl: string | null; x: number; y: number } | null>(null);
@@ -180,6 +181,7 @@ function App() {
       scrollFrameRef.current = null;
     }
     scrollTimestampRef.current = null;
+    scrollRemainderRef.current = 0;
   }
 
   function beginPointerDrag(event: React.PointerEvent, appid: number) {
@@ -202,7 +204,7 @@ function App() {
       setDragPreview({ count: drag.ids.length, imageUrl: drag.imageUrl, x: event.clientX, y: event.clientY });
     }
 
-    function releasePointer(event: PointerEvent) {
+    function releasePointer(event: PointerEvent | MouseEvent) {
       const drag = pointerDragRef.current;
       if (draggingRef.current && drag) {
         const target = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>('[data-dropzone]');
@@ -213,10 +215,16 @@ function App() {
     }
 
     window.addEventListener('pointermove', movePointer);
-    window.addEventListener('pointerup', releasePointer);
+    window.addEventListener('pointerup', releasePointer, true);
+    window.addEventListener('pointercancel', stopDragging, true);
+    window.addEventListener('mouseup', releasePointer, true);
+    window.addEventListener('blur', stopDragging);
     return () => {
       window.removeEventListener('pointermove', movePointer);
-      window.removeEventListener('pointerup', releasePointer);
+      window.removeEventListener('pointerup', releasePointer, true);
+      window.removeEventListener('pointercancel', stopDragging, true);
+      window.removeEventListener('mouseup', releasePointer, true);
+      window.removeEventListener('blur', stopDragging);
     };
   }, [selected, tierState]);
 
@@ -227,6 +235,7 @@ function App() {
       if (!draggingRef.current) {
         scrollFrameRef.current = null;
         scrollTimestampRef.current = null;
+        scrollRemainderRef.current = 0;
         return;
       }
 
@@ -240,7 +249,14 @@ function App() {
 
       if (topDistance < edge) velocity = -900 * ((edge - topDistance) / edge) ** 2;
       if (bottomDistance < edge) velocity = 900 * ((edge - bottomDistance) / edge) ** 2;
-      if (velocity) window.scrollBy({ top: velocity * elapsed / 1000, behavior: 'auto' });
+      if (velocity) {
+        scrollRemainderRef.current += velocity * elapsed / 1000;
+        const amount = scrollRemainderRef.current > 0 ? Math.floor(scrollRemainderRef.current) : Math.ceil(scrollRemainderRef.current);
+        if (amount) {
+          scrollRemainderRef.current -= amount;
+          window.scrollBy({ top: amount, behavior: 'auto' });
+        }
+      }
 
       scrollFrameRef.current = requestAnimationFrame(scrollFrame);
     }
