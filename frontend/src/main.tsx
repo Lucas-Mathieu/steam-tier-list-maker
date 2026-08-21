@@ -45,7 +45,10 @@ function App() {
   const [filter, setFilter] = useState<Filter>('all');
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [history, setHistory] = useState<TierState[]>([]);
+  const [showTierEditor, setShowTierEditor] = useState(false);
+  const [cardSize, setCardSize] = useState(184);
   const boardRef = useRef<HTMLDivElement>(null);
+  const loadedCardSizeFor = useRef<string | null>(null);
 
   const gamesById = useMemo(() => new Map(games.map((game) => [game.appid, game])), [games]);
 
@@ -76,6 +79,18 @@ function App() {
       localStorage.setItem(`steam-tier-list:${tierState.steamId}`, JSON.stringify(tierState));
     }
   }, [tierState]);
+
+  useEffect(() => {
+    if (!tierState) return;
+    const key = `steam-tier-list-banner-width:${tierState.steamId}`;
+    if (loadedCardSizeFor.current !== tierState.steamId) {
+      loadedCardSizeFor.current = tierState.steamId;
+      const savedSize = Number(localStorage.getItem(key));
+      if (savedSize >= 120 && savedSize <= 320) setCardSize(savedSize);
+      return;
+    }
+    localStorage.setItem(key, String(cardSize));
+  }, [cardSize, tierState?.steamId]);
 
   async function loadLibrary() {
     if (!parseSteamProfileInput(profile)) {
@@ -128,6 +143,12 @@ function App() {
     } catch {
       // Ignore drops that did not originate from a game card.
     }
+  }
+
+  function autoScrollWhileDragging(event: React.DragEvent) {
+    const edge = 110;
+    if (event.clientY < edge) window.scrollBy({ top: -18, behavior: 'auto' });
+    if (event.clientY > window.innerHeight - edge) window.scrollBy({ top: 18, behavior: 'auto' });
   }
 
   function toggleSelection(event: React.MouseEvent, appid: number) {
@@ -231,7 +252,7 @@ function App() {
   }
 
   return (
-    <main onClick={(event) => event.target === event.currentTarget && setSelected(new Set())}>
+    <main style={{ '--card-width': `${cardSize}px`, '--card-height': `${Math.round(cardSize * 0.467)}px` } as React.CSSProperties} onDragOver={autoScrollWhileDragging} onClick={(event) => event.target === event.currentTarget && setSelected(new Set())}>
       <header className="page-header">
         <div><h1>Steam Library Tier List</h1><p className="muted">{games.length.toLocaleString()} games loaded</p></div>
         <div className="actions">
@@ -256,8 +277,14 @@ function App() {
         </div>
       </section>
       <section className="tier-editor">
-        <div><h2>Edit tiers</h2><p className="muted">Changes are saved automatically.</p></div>
-        <div className="tier-editor-list">
+        <div className="tier-editor-heading">
+          <div><h2>Edit tiers</h2><p className="muted">Changes are saved automatically.</p></div>
+          <div className="editor-controls">
+            <label className="size-control">Banner size <input type="range" min="120" max="320" step="8" value={cardSize} onChange={(event) => setCardSize(Number(event.target.value))} /> <output>{cardSize}px</output></label>
+            <button onClick={() => setShowTierEditor((open) => !open)} aria-expanded={showTierEditor}>{showTierEditor ? 'Hide editor' : 'Edit tiers'}</button>
+          </div>
+        </div>
+        {showTierEditor && <div className="tier-editor-list">
           {tierState.tiers.map((tier, index) => (
             <div className="tier-editor-row" key={tier.id}>
               <input aria-label="Tier name" value={tier.label} onChange={(event) => changeTierLabel(tier.id, event.target.value)} />
@@ -268,7 +295,7 @@ function App() {
             </div>
           ))}
           <button className="add-tier" onClick={addTier}>Add tier</button>
-        </div>
+        </div>}
       </section>
       <section className="library">
         <div className="library-head">
