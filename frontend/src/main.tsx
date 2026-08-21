@@ -49,7 +49,7 @@ function GameCard({ game, selected, onClick, onPointerDown }: {
       onClick={onClick}
       onPointerDown={onPointerDown}
     >
-      {imageUrl && !imageFailed && <img loading="lazy" src={imageUrl} alt={game.name} onError={() => imageUrl === steamArtworkUrl(game.appid) ? setImageFailed(true) : setImageUrl(steamArtworkUrl(game.appid))} />}
+      {imageUrl && !imageFailed && <img draggable={false} loading="lazy" src={imageUrl} alt={game.name} onError={() => imageUrl === steamArtworkUrl(game.appid) ? setImageFailed(true) : setImageUrl(steamArtworkUrl(game.appid))} />}
       {(!imageUrl || imageFailed) && <div className="missing-art" aria-label={`${game.name} artwork unavailable`}>{game.name}</div>}
       <span>{game.name}</span>
     </button>
