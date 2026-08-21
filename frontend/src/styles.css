@@ -61,3 +61,4 @@ p { line-height: 1.45; }
 .library-head p { margin: 4px 0 0; color: #aaa; font-size: 14px; }
 .pool { min-height: 190px; border: 1px solid #4e4e4e; border-radius: 5px; background: #303030; }
 @media (max-width: 720px) { main { padding: 16px 12px 32px; } .welcome { margin: 24px auto; padding: 22px; } .page-header, .library-head, .tier-editor-heading { display: block; } .actions, .controls, .editor-controls { margin-top: 13px; } .load-row { display: block; } .load-row button { width: 100%; margin-top: 8px; } .board { overflow-x: auto; } .dropzone { min-width: 620px; } .tier-row { grid-template-columns: 74px 1fr; } .tier-label { font-size: 24px; } .tier-editor-row button { flex: 1; } }
+

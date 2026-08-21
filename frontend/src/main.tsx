@@ -75,8 +75,6 @@ function App() {
   const draggingRef = useRef(false);
   const dragYRef = useRef(0);
   const scrollFrameRef = useRef<number | null>(null);
-  const scrollTimestampRef = useRef<number | null>(null);
-  const scrollRemainderRef = useRef(0);
   const pointerDragRef = useRef<{ ids: number[]; startX: number; startY: number; imageUrl: string | null } | null>(null);
   const ignoreNextClickRef = useRef(false);
   const [dragPreview, setDragPreview] = useState<{ count: number; imageUrl: string | null; x: number; y: number } | null>(null);
@@ -180,84 +178,63 @@ function App() {
       cancelAnimationFrame(scrollFrameRef.current);
       scrollFrameRef.current = null;
     }
-    scrollTimestampRef.current = null;
-    scrollRemainderRef.current = 0;
   }
 
   function beginPointerDrag(event: React.PointerEvent, appid: number) {
     if (event.button !== 0) return;
-    event.currentTarget.setPointerCapture(event.pointerId);
     const imageUrl = (event.currentTarget.querySelector('img') as HTMLImageElement | null)?.currentSrc || null;
     pointerDragRef.current = { ids: selected.has(appid) ? [...selected] : [appid], startX: event.clientX, startY: event.clientY, imageUrl };
   }
 
-  function movePointer(event: { clientX: number; clientY: number }) {
-    const drag = pointerDragRef.current;
-    if (!drag) return;
-    if (!draggingRef.current && Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) < 6) return;
-    if (!draggingRef.current) {
-      draggingRef.current = true;
-      ignoreNextClickRef.current = true;
-      startEdgeScroll();
-    }
-    dragYRef.current = event.clientY;
-    setDragPreview({ count: drag.ids.length, imageUrl: drag.imageUrl, x: event.clientX, y: event.clientY });
-  }
-
-  function releasePointer(event: { clientX: number; clientY: number }) {
-    const drag = pointerDragRef.current;
-    if (draggingRef.current && drag) {
-      const target = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>('[data-dropzone]');
-      const destination = target?.dataset.dropzone;
-      if (destination) move(drag.ids, destination);
-    }
-    stopDragging();
-  }
-
   useEffect(() => {
+    function movePointer(event: PointerEvent) {
+      const drag = pointerDragRef.current;
+      if (!drag) return;
+      if (!draggingRef.current && Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) < 6) return;
+      if (!draggingRef.current) {
+        draggingRef.current = true;
+        ignoreNextClickRef.current = true;
+        startEdgeScroll();
+      }
+      dragYRef.current = event.clientY;
+      setDragPreview({ count: drag.ids.length, imageUrl: drag.imageUrl, x: event.clientX, y: event.clientY });
+    }
+
+    function releasePointer(event: PointerEvent) {
+      const drag = pointerDragRef.current;
+      if (draggingRef.current && drag) {
+        const target = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>('[data-dropzone]');
+        const destination = target?.dataset.dropzone;
+        if (destination) move(drag.ids, destination);
+      }
+      stopDragging();
+    }
+
     window.addEventListener('pointermove', movePointer);
-    window.addEventListener('pointerup', releasePointer, true);
-    window.addEventListener('pointercancel', stopDragging, true);
-    window.addEventListener('mouseup', releasePointer, true);
-    window.addEventListener('blur', stopDragging);
+    window.addEventListener('pointerup', releasePointer);
     return () => {
       window.removeEventListener('pointermove', movePointer);
-      window.removeEventListener('pointerup', releasePointer, true);
-      window.removeEventListener('pointercancel', stopDragging, true);
-      window.removeEventListener('mouseup', releasePointer, true);
-      window.removeEventListener('blur', stopDragging);
+      window.removeEventListener('pointerup', releasePointer);
     };
   }, [selected, tierState]);
 
   function startEdgeScroll() {
     if (scrollFrameRef.current !== null) return;
 
-    function scrollFrame(timestamp: number) {
+    function scrollFrame() {
       if (!draggingRef.current) {
         scrollFrameRef.current = null;
-        scrollTimestampRef.current = null;
-        scrollRemainderRef.current = 0;
         return;
       }
 
-      const previousTimestamp = scrollTimestampRef.current ?? timestamp;
-      const elapsed = Math.min(timestamp - previousTimestamp, 34);
-      scrollTimestampRef.current = timestamp;
       const edge = 90;
       const topDistance = dragYRef.current;
       const bottomDistance = window.innerHeight - dragYRef.current;
-      let velocity = 0;
+      let amount = 0;
 
-      if (topDistance < edge) velocity = -900 * ((edge - topDistance) / edge) ** 2;
-      if (bottomDistance < edge) velocity = 900 * ((edge - bottomDistance) / edge) ** 2;
-      if (velocity) {
-        scrollRemainderRef.current += velocity * elapsed / 1000;
-        const amount = scrollRemainderRef.current > 0 ? Math.floor(scrollRemainderRef.current) : Math.ceil(scrollRemainderRef.current);
-        if (amount) {
-          scrollRemainderRef.current -= amount;
-          window.scrollBy({ top: amount, behavior: 'auto' });
-        }
-      }
+      if (topDistance < edge) amount = -Math.max(4, Math.ceil(((edge - topDistance) / edge) * 28));
+      if (bottomDistance < edge) amount = Math.max(4, Math.ceil(((edge - bottomDistance) / edge) * 28));
+      if (amount) window.scrollBy({ top: amount, behavior: 'auto' });
 
       scrollFrameRef.current = requestAnimationFrame(scrollFrame);
     }
@@ -370,7 +347,7 @@ function App() {
   }
 
   return (
-    <main style={{ '--card-width': `${cardSize}px`, '--card-height': `${Math.round(cardSize * 0.467)}px` } as React.CSSProperties} onPointerMove={movePointer} onPointerUp={releasePointer} onPointerCancel={stopDragging} onClick={(event) => event.target === event.currentTarget && setSelected(new Set())}>
+    <main style={{ '--card-width': `${cardSize}px`, '--card-height': `${Math.round(cardSize * 0.467)}px` } as React.CSSProperties} onClick={(event) => event.target === event.currentTarget && setSelected(new Set())}>
       <header className="page-header">
         <div><h1>Steam Library Tier List</h1><p className="muted">{games.length.toLocaleString()} games loaded</p></div>
         <div className="actions">
@@ -428,3 +405,4 @@ function App() {
 }
 
 createRoot(document.getElementById('root')!).render(<App />);
+
