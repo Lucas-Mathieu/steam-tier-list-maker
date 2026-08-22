@@ -10,9 +10,10 @@ type Sort = 'az' | 'za' | 'most' | 'least' | 'recent';
 type Filter = 'all' | 'played' | 'never';
 const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
 
-function GameCard({ game, selected, onClick, onPointerDown }: {
+function GameCard({ game, selected, dropBefore, onClick, onPointerDown }: {
   game: Game;
   selected: boolean;
+  dropBefore: boolean;
   onClick: (event: React.MouseEvent) => void;
   onPointerDown: (event: React.PointerEvent) => void;
 }) {
@@ -42,7 +43,8 @@ function GameCard({ game, selected, onClick, onPointerDown }: {
   return (
     <button
       ref={cardRef}
-      className={`game-card ${selected ? 'selected' : ''}`}
+      className={`game-card ${selected ? 'selected' : ''} ${dropBefore ? 'drop-before' : ''}`}
+      data-game-id={game.appid}
       draggable={false}
       title={`${game.name} — ${formatPlaytime(game.playtimeForever)}`}
       aria-label={`Drag ${game.name}`}
@@ -78,6 +80,8 @@ function App() {
   const pointerDragRef = useRef<{ ids: number[]; startX: number; startY: number; imageUrl: string | null } | null>(null);
   const ignoreNextClickRef = useRef(false);
   const [dragPreview, setDragPreview] = useState<{ count: number; imageUrl: string | null; x: number; y: number } | null>(null);
+  const dropPositionRef = useRef<{ destination: string; beforeId: number | null } | null>(null);
+  const [dropPosition, setDropPosition] = useState<{ destination: string; beforeId: number | null } | null>(null);
 
   const gamesById = useMemo(() => new Map(games.map((game) => [game.appid, game])), [games]);
 
@@ -163,16 +167,21 @@ function App() {
     }
   }
 
-  function move(ids: number[], destination: string) {
+  function move(ids: number[], destination: string, beforeId: number | null = null) {
     if (!tierState) return;
+    const list = destination === 'unranked' ? tierState.unranked : destination === 'notRanking' ? tierState.notRanking : tierState.tiers.find((tier) => tier.id === destination)?.gameIds;
+    const remaining = (list || []).filter((id) => !ids.includes(id));
+    const index = beforeId === null ? remaining.length : Math.max(0, remaining.indexOf(beforeId));
     setHistory((entries) => [tierState, ...entries].slice(0, 40));
-    setTierState(moveGames(tierState, ids, destination));
+    setTierState(moveGames(tierState, ids, destination, index));
     setSelected(new Set());
   }
 
   function stopDragging() {
     draggingRef.current = false;
     pointerDragRef.current = null;
+    dropPositionRef.current = null;
+    setDropPosition(null);
     setDragPreview(null);
     if (scrollFrameRef.current !== null) {
       cancelAnimationFrame(scrollFrameRef.current);
@@ -191,8 +200,8 @@ function App() {
     const drag = pointerDragRef.current;
     if (draggingRef.current && drag) {
       const target = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>('[data-dropzone]');
-      const destination = target?.dataset.dropzone;
-      if (destination) move(drag.ids, destination);
+      const position = dropPositionRef.current;
+      if (position) move(drag.ids, position.destination, position.beforeId);
     }
     stopDragging();
   }
@@ -208,6 +217,21 @@ function App() {
         startEdgeScroll();
       }
       dragYRef.current = event.clientY;
+      const zone = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>('[data-dropzone]');
+      if (zone) {
+        const cards = [...zone.querySelectorAll<HTMLElement>('[data-game-id]')].filter((card) => !drag.ids.includes(Number(card.dataset.gameId)));
+        const hovered = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>('[data-game-id]');
+        let beforeId: number | null = null;
+        if (hovered && !drag.ids.includes(Number(hovered.dataset.gameId))) {
+          const rect = hovered.getBoundingClientRect();
+          if (event.clientX < rect.left + rect.width / 2) beforeId = Number(hovered.dataset.gameId);
+          else beforeId = Number(cards[cards.indexOf(hovered) + 1]?.dataset.gameId) || null;
+        }
+        if (!hovered && cards.length) beforeId = null;
+        const next = { destination: zone.dataset.dropzone!, beforeId };
+        dropPositionRef.current = next;
+        setDropPosition(next);
+      }
       setDragPreview({ count: drag.ids.length, imageUrl: drag.imageUrl, x: event.clientX, y: event.clientY });
     }
 
@@ -256,11 +280,11 @@ function App() {
     });
   }
 
-  function renderCards(ids: number[]) {
+  function renderCards(ids: number[], destination: string) {
     return ids.map((id) => {
       const game = gamesById.get(id);
       if (!game) return null;
-      return <GameCard key={id} game={game} selected={selected.has(id)} onClick={(event) => toggleSelection(event, id)} onPointerDown={(event) => beginPointerDrag(event, id)} />;
+      return <GameCard key={id} game={game} selected={selected.has(id)} dropBefore={dropPosition?.destination === destination && dropPosition.beforeId === id} onClick={(event) => toggleSelection(event, id)} onPointerDown={(event) => beginPointerDrag(event, id)} />;
     });
   }
 
@@ -364,12 +388,12 @@ function App() {
         {tierState.tiers.map((tier) => (
           <div className="tier-row" key={tier.id}>
             <div className="tier-label" style={{ backgroundColor: tier.color }}>{tier.label || 'Tier'}</div>
-            <div className="dropzone" data-dropzone={tier.id}>{renderCards(tier.gameIds)}</div>
+            <div className={`dropzone ${dropPosition?.destination === tier.id && dropPosition.beforeId === null ? 'drop-at-end' : ''}`} data-dropzone={tier.id}>{renderCards(tier.gameIds, tier.id)}</div>
           </div>
         ))}
         <div className="tier-row">
           <div className="tier-label na-label">N/A</div>
-          <div className="dropzone" data-dropzone="notRanking">{renderCards(tierState.notRanking)}</div>
+          <div className={`dropzone ${dropPosition?.destination === 'notRanking' && dropPosition.beforeId === null ? 'drop-at-end' : ''}`} data-dropzone="notRanking">{renderCards(tierState.notRanking, 'notRanking')}</div>
         </div>
       </section>
       <section className="tier-editor">
@@ -398,7 +422,7 @@ function App() {
           <div><h2>Unranked</h2><p>{visibleUnranked.length} shown · {tierState.unranked.length} unranked · {games.length} total</p></div>
           <div className="controls"><input aria-label="Search unranked games" value={search} placeholder="Search games" onChange={(event) => setSearch(event.target.value)} /><select value={filter} onChange={(event) => setFilter(event.target.value as Filter)}><option value="all">All games</option><option value="played">Played</option><option value="never">Never played</option></select><select value={sort} onChange={(event) => setSort(event.target.value as Sort)}><option value="az">A–Z</option><option value="za">Z–A</option><option value="most">Most played</option><option value="least">Least played</option><option value="recent">Recently played</option></select></div>
         </div>
-        <div className="pool" data-dropzone="unranked">{visibleUnranked.map((game) => <GameCard key={game.appid} game={game} selected={selected.has(game.appid)} onClick={(event) => toggleSelection(event, game.appid)} onPointerDown={(event) => beginPointerDrag(event, game.appid)} />)}</div>
+        <div className={`pool ${dropPosition?.destination === 'unranked' && dropPosition.beforeId === null ? 'drop-at-end' : ''}`} data-dropzone="unranked">{visibleUnranked.map((game) => <GameCard key={game.appid} game={game} selected={selected.has(game.appid)} dropBefore={dropPosition?.destination === 'unranked' && dropPosition.beforeId === game.appid} onClick={(event) => toggleSelection(event, game.appid)} onPointerDown={(event) => beginPointerDrag(event, game.appid)} />)}</div>
       </section>
       {dragPreview && <div className="pointer-drag-preview" style={{ left: dragPreview.x + 14, top: dragPreview.y + 14 }}><div>{dragPreview.imageUrl && <img src={dragPreview.imageUrl} alt="" />}</div>{dragPreview.count > 1 && <b>{dragPreview.count}</b>}</div>}
     </main>
