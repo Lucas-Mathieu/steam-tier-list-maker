@@ -10,10 +10,9 @@ type Sort = 'az' | 'za' | 'most' | 'least' | 'recent';
 type Filter = 'all' | 'played' | 'never';
 const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
 
-function GameCard({ game, selected, dropBefore, onClick, onPointerDown }: {
+function GameCard({ game, selected, onClick, onPointerDown }: {
   game: Game;
   selected: boolean;
-  dropBefore: boolean;
   onClick: (event: React.MouseEvent) => void;
   onPointerDown: (event: React.PointerEvent) => void;
 }) {
@@ -43,7 +42,7 @@ function GameCard({ game, selected, dropBefore, onClick, onPointerDown }: {
   return (
     <button
       ref={cardRef}
-      className={`game-card ${selected ? 'selected' : ''} ${dropBefore ? 'drop-before' : ''}`}
+      className={`game-card ${selected ? 'selected' : ''}`}
       data-game-id={game.appid}
       draggable={false}
       title={`${game.name} — ${formatPlaytime(game.playtimeForever)}`}
@@ -220,17 +219,22 @@ function App() {
       const zone = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>('[data-dropzone]');
       if (zone) {
         const cards = [...zone.querySelectorAll<HTMLElement>('[data-game-id]')].filter((card) => !drag.ids.includes(Number(card.dataset.gameId)));
-        const hovered = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>('[data-game-id]');
+        const element = document.elementFromPoint(event.clientX, event.clientY);
+        const placeholder = element?.closest<HTMLElement>('[data-drop-placeholder]');
+        const hovered = element?.closest<HTMLElement>('[data-game-id]');
         let beforeId: number | null = null;
-        if (hovered && !drag.ids.includes(Number(hovered.dataset.gameId))) {
+        if (placeholder) beforeId = Number(placeholder.dataset.dropPlaceholder) || null;
+        else if (hovered && !drag.ids.includes(Number(hovered.dataset.gameId))) {
           const rect = hovered.getBoundingClientRect();
           if (event.clientX < rect.left + rect.width / 2) beforeId = Number(hovered.dataset.gameId);
           else beforeId = Number(cards[cards.indexOf(hovered) + 1]?.dataset.gameId) || null;
         }
         if (!hovered && cards.length) beforeId = null;
         const next = { destination: zone.dataset.dropzone!, beforeId };
-        dropPositionRef.current = next;
-        setDropPosition(next);
+        if (dropPositionRef.current?.destination !== next.destination || dropPositionRef.current.beforeId !== next.beforeId) {
+          dropPositionRef.current = next;
+          setDropPosition(next);
+        }
       }
       setDragPreview({ count: drag.ids.length, imageUrl: drag.imageUrl, x: event.clientX, y: event.clientY });
     }
@@ -281,10 +285,11 @@ function App() {
   }
 
   function renderCards(ids: number[], destination: string) {
-    return ids.map((id) => {
+    return ids.flatMap((id) => {
       const game = gamesById.get(id);
-      if (!game) return null;
-      return <GameCard key={id} game={game} selected={selected.has(id)} dropBefore={dropPosition?.destination === destination && dropPosition.beforeId === id} onClick={(event) => toggleSelection(event, id)} onPointerDown={(event) => beginPointerDrag(event, id)} />;
+      if (!game) return [];
+      const placeholder = dropPosition?.destination === destination && dropPosition.beforeId === id ? <div className="drag-placeholder" data-drop-placeholder={id} key={`placeholder-${id}`} /> : null;
+      return [placeholder, <GameCard key={id} game={game} selected={selected.has(id)} onClick={(event) => toggleSelection(event, id)} onPointerDown={(event) => beginPointerDrag(event, id)} />];
     });
   }
 
@@ -388,12 +393,12 @@ function App() {
         {tierState.tiers.map((tier) => (
           <div className="tier-row" key={tier.id}>
             <div className="tier-label" style={{ backgroundColor: tier.color }}>{tier.label || 'Tier'}</div>
-            <div className={`dropzone ${dropPosition?.destination === tier.id && dropPosition.beforeId === null ? 'drop-at-end' : ''}`} data-dropzone={tier.id}>{renderCards(tier.gameIds, tier.id)}</div>
+            <div className="dropzone" data-dropzone={tier.id}>{renderCards(tier.gameIds, tier.id)}{dropPosition?.destination === tier.id && dropPosition.beforeId === null && <div className="drag-placeholder" data-drop-placeholder="end" />}</div>
           </div>
         ))}
         <div className="tier-row">
           <div className="tier-label na-label">N/A</div>
-          <div className={`dropzone ${dropPosition?.destination === 'notRanking' && dropPosition.beforeId === null ? 'drop-at-end' : ''}`} data-dropzone="notRanking">{renderCards(tierState.notRanking, 'notRanking')}</div>
+          <div className="dropzone" data-dropzone="notRanking">{renderCards(tierState.notRanking, 'notRanking')}{dropPosition?.destination === 'notRanking' && dropPosition.beforeId === null && <div className="drag-placeholder" data-drop-placeholder="end" />}</div>
         </div>
       </section>
       <section className="tier-editor">
@@ -422,7 +427,7 @@ function App() {
           <div><h2>Unranked</h2><p>{visibleUnranked.length} shown · {tierState.unranked.length} unranked · {games.length} total</p></div>
           <div className="controls"><input aria-label="Search unranked games" value={search} placeholder="Search games" onChange={(event) => setSearch(event.target.value)} /><select value={filter} onChange={(event) => setFilter(event.target.value as Filter)}><option value="all">All games</option><option value="played">Played</option><option value="never">Never played</option></select><select value={sort} onChange={(event) => setSort(event.target.value as Sort)}><option value="az">A–Z</option><option value="za">Z–A</option><option value="most">Most played</option><option value="least">Least played</option><option value="recent">Recently played</option></select></div>
         </div>
-        <div className={`pool ${dropPosition?.destination === 'unranked' && dropPosition.beforeId === null ? 'drop-at-end' : ''}`} data-dropzone="unranked">{visibleUnranked.map((game) => <GameCard key={game.appid} game={game} selected={selected.has(game.appid)} dropBefore={dropPosition?.destination === 'unranked' && dropPosition.beforeId === game.appid} onClick={(event) => toggleSelection(event, game.appid)} onPointerDown={(event) => beginPointerDrag(event, game.appid)} />)}</div>
+        <div className="pool" data-dropzone="unranked">{visibleUnranked.flatMap((game) => [dropPosition?.destination === 'unranked' && dropPosition.beforeId === game.appid ? <div className="drag-placeholder" data-drop-placeholder={game.appid} key={`placeholder-${game.appid}`} /> : null, <GameCard key={game.appid} game={game} selected={selected.has(game.appid)} onClick={(event) => toggleSelection(event, game.appid)} onPointerDown={(event) => beginPointerDrag(event, game.appid)} />])}{dropPosition?.destination === 'unranked' && dropPosition.beforeId === null && <div className="drag-placeholder" data-drop-placeholder="end" />}</div>
       </section>
       {dragPreview && <div className="pointer-drag-preview" style={{ left: dragPreview.x + 14, top: dragPreview.y + 14 }}><div>{dragPreview.imageUrl && <img src={dragPreview.imageUrl} alt="" />}</div>{dragPreview.count > 1 && <b>{dragPreview.count}</b>}</div>}
     </main>
