@@ -218,18 +218,29 @@ function App() {
       dragYRef.current = event.clientY;
       const zone = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>('[data-dropzone]');
       if (zone) {
-        const cards = [...zone.querySelectorAll<HTMLElement>('[data-game-id]')].filter((card) => !drag.ids.includes(Number(card.dataset.gameId)));
-        const element = document.elementFromPoint(event.clientX, event.clientY);
-        const placeholder = element?.closest<HTMLElement>('[data-drop-placeholder]');
-        const hovered = element?.closest<HTMLElement>('[data-game-id]');
+        const cards = [...zone.querySelectorAll<HTMLElement>('[data-game-id]')]
+          .filter((card) => !drag.ids.includes(Number(card.dataset.gameId)))
+          .map((card) => ({ card, id: Number(card.dataset.gameId), rect: card.getBoundingClientRect() }));
         let beforeId: number | null = null;
-        if (placeholder) beforeId = Number(placeholder.dataset.dropPlaceholder) || null;
-        else if (hovered && !drag.ids.includes(Number(hovered.dataset.gameId))) {
-          const rect = hovered.getBoundingClientRect();
-          if (event.clientX < rect.left + rect.width / 2) beforeId = Number(hovered.dataset.gameId);
-          else beforeId = Number(cards[cards.indexOf(hovered) + 1]?.dataset.gameId) || null;
+        const rows = cards.reduce<Array<typeof cards>>((result, card) => {
+          const row = result.find((items) => Math.abs(items[0].rect.top - card.rect.top) < 8);
+          if (row) row.push(card); else result.push([card]);
+          return result;
+        }, []);
+        const row = rows.reduce<typeof cards>((closest, candidate) => {
+          if (!closest.length) return candidate;
+          const closestDistance = Math.abs(event.clientY - (closest[0].rect.top + closest[0].rect.height / 2));
+          const candidateDistance = Math.abs(event.clientY - (candidate[0].rect.top + candidate[0].rect.height / 2));
+          return candidateDistance < closestDistance ? candidate : closest;
+        }, []);
+        if (row.length) {
+          const next = row.find((item) => event.clientX < item.rect.left + item.rect.width / 2);
+          if (next) beforeId = next.id;
+          else {
+            const rowIndex = rows.indexOf(row);
+            beforeId = rows[rowIndex + 1]?.[0]?.id ?? null;
+          }
         }
-        if (!hovered && cards.length) beforeId = null;
         const next = { destination: zone.dataset.dropzone!, beforeId };
         if (dropPositionRef.current?.destination !== next.destination || dropPositionRef.current.beforeId !== next.beforeId) {
           dropPositionRef.current = next;
