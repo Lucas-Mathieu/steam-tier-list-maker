@@ -429,7 +429,7 @@ function App() {
         </div>
         <div className="pool" data-dropzone="unranked">{visibleUnranked.flatMap((game) => [dropPosition?.destination === 'unranked' && dropPosition.beforeId === game.appid ? <div className="drag-placeholder" data-drop-placeholder={game.appid} key={`placeholder-${game.appid}`} /> : null, <GameCard key={game.appid} game={game} selected={selected.has(game.appid)} onClick={(event) => toggleSelection(event, game.appid)} onPointerDown={(event) => beginPointerDrag(event, game.appid)} />])}{dropPosition?.destination === 'unranked' && dropPosition.beforeId === null && <div className="drag-placeholder" data-drop-placeholder="end" />}</div>
       </section>
-      {dragPreview && <div className="pointer-drag-preview" style={{ left: dragPreview.x + 14, top: dragPreview.y + 14 }}><div>{dragPreview.imageUrl && <img src={dragPreview.imageUrl} alt="" />}</div>{dragPreview.count > 1 && <b>{dragPreview.count}</b>}</div>}
+      {dragPreview && <div className="pointer-drag-preview" style={{ left: dragPreview.x + 14, top: dragPreview.y - Math.round(cardSize * 0.467) - 14 }}><div>{dragPreview.imageUrl && <img src={dragPreview.imageUrl} alt="" />}</div>{dragPreview.count > 1 && <b>{dragPreview.count}</b>}</div>}
     </main>
   );
 }
